@@ -12,10 +12,10 @@ Unlike =global-auto-revert-mode=, which monitors *all* file-visiting buffers,
 =visible-auto-revert= focuses only on buffers you can actually see.
 
 * Features
-- **Selective monitoring** : Only visible file-visiting buffers are auto-reverted.
-- **Optimized updates** : Uses state tracking and differential updates to avoid redundant mode toggles.
-- **Low overhead** : Reduces file system watches and CPU usage compared to global auto-revert.
-- **Configurable delay** : Control how quickly updates happen after window/buffer changes.
+- *Selective monitoring* : Only visible file-visiting buffers are auto-reverted.
+- *Optimized updates* : Uses state tracking and differential updates to avoid redundant mode toggles.
+- *Low overhead* : Reduces file system watches and CPU usage compared to global auto-revert.
+- *Configurable delay* : Control how quickly updates happen after window/buffer changes.
 
 * Requirements
 - Emacs 27.1 or later
