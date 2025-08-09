@@ -1,0 +1,56 @@
+* Overview
+=visible-auto-revert= is a global minor mode for Emacs that enables
+=auto-revert-mode= *only* for buffers that:
+
+- are currently visible in any Emacs window
+- are visiting a file (=buffer-file-name= is non-nil)
+
+This approach minimizes CPU usage and file system monitoring overhead,
+while ensuring visible buffers are always up to date.
+
+Unlike =global-auto-revert-mode=, which monitors *all* file-visiting buffers,
+=visible-auto-revert= focuses only on buffers you can actually see.
+
+* Features
+- **Selective monitoring**: Only visible file-visiting buffers are auto-reverted.
+- **Optimized updates**: Uses state tracking and differential updates to avoid redundant mode toggles.
+- **Low overhead**: Reduces file system watches and CPU usage compared to global auto-revert.
+- **Configurable delay**: Control how quickly updates happen after window/buffer changes.
+
+* Requirements
+- Emacs 27.1 or later
+
+* Installation
+** Using package.el
+#+begin_src emacs-lisp
+(use-package visible-auto-revert
+  :vc ( :url "https://github.com/kn66/visible-auto-revert.el"
+        :rev :newest)
+  :config
+  (visible-auto-revert-mode +1))
+#+end_src
+
+* Customization
+** visible-auto-revert-delay
+Delay in seconds before processing buffer visibility changes.
+Lower values mean faster response, but higher CPU usage.
+
+#+begin_src emacs-lisp
+(setq visible-auto-revert-delay 0.1) ;; default
+#+end_src
+
+* How it Works
+1. Tracks visible buffers using =window-list=.
+2. Maintains a hash table of currently monitored buffers.
+3. On window/buffer changes, schedules a delayed update.
+4. Applies =auto-revert-mode= only to newly visible buffers.
+5. Disables it for buffers that are no longer visible.
+
+* Example Scenario
+- You have multiple file buffers open, but only a few are visible in splits or tabs.
+- An external process changes files on disk.
+- Only the visible buffers refresh automatically — hidden ones remain untouched until you view them.
+
+* License
+MIT License
+
