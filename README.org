@@ -24,7 +24,7 @@ Unlike =global-auto-revert-mode=, which monitors *all* file-visiting buffers,
 ** Using package.el
 #+begin_src emacs-lisp
 (use-package visible-auto-revert
-  :vc ( :url "https://github.com/kn66/visible-auto-revert.el"
+  :vc ( :url "https://github.com/kn66/visible-auto-revert.el.git"
         :rev :newest)
   :config
   (visible-auto-revert-mode +1))
