@@ -99,6 +99,7 @@ Higher values reduce CPU usage but may delay buffer monitoring updates."
   "Auto-revert only visible file-visiting buffers.
 Optimized version that uses state tracking and differential updates."
   :global t
+  :group 'auto-revert
   (if visible-auto-revert-mode
       (progn
         ;; Use delayed scheduling hooks
