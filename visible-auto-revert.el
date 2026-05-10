@@ -56,7 +56,10 @@
   :link '(url-link :tag "GitHub" "https://github.com/kn66/visible-auto-revert.el"))
 
 (defvar visible-auto-revert--monitored-buffers (make-hash-table :test 'eq)
-  "Hash table of buffers currently being monitored.")
+  "Hash table of monitored buffers.
+Values are symbols describing ownership:
+- `owned' means this package enabled `auto-revert-mode' for the buffer.
+- `external' means Auto Revert was already active for the buffer.")
 
 (defvar visible-auto-revert--update-timer nil
   "Timer for delayed updates to reduce frequent processing.")
@@ -68,16 +71,27 @@ Higher values reduce CPU usage but may delay buffer monitoring updates."
   :type 'number
   :group 'visible-auto-revert)
 
+(defun visible-auto-revert--auto-revert-active-p ()
+  "Return non-nil if Auto Revert already handles the current buffer."
+  (if (fboundp 'auto-revert-active-p)
+      (auto-revert-active-p)
+    (or auto-revert-mode
+        (bound-and-true-p auto-revert-tail-mode)
+        (bound-and-true-p auto-revert--global-mode))))
+
 (defun visible-auto-revert--get-visible-file-buffers ()
   "Return hash table of visible file-visiting buffers across all frames."
   (let ((visible-hash (make-hash-table :test 'eq)))
-    (dolist (frame (frame-list))
-      (when (frame-visible-p frame)
-        (dolist (window (window-list frame 'no-minibuf))
-          (let ((buf (window-buffer window)))
-            (when (and (buffer-live-p buf)
-                       (buffer-file-name buf))
-              (puthash buf t visible-hash))))))
+    (walk-windows
+     (lambda (window)
+       ;; `frame-visible-p' may return `icon' for iconified frames; only `t'
+       ;; means the frame is actually visible on screen.
+       (when (eq (frame-visible-p (window-frame window)) t)
+         (let ((buf (window-buffer window)))
+           (when (and (buffer-live-p buf)
+                      (buffer-file-name buf))
+             (puthash buf t visible-hash)))))
+     'no-minibuf t)
     visible-hash))
 
 (defun visible-auto-revert--update-delayed ()
@@ -110,15 +124,18 @@ This function is safe to call from hooks as it catches and reports errors."
         (dolist (buf to-enable)
           (when (buffer-live-p buf)
             (with-current-buffer buf
-              (unless auto-revert-mode
-                (auto-revert-mode 1))
-              (puthash buf t visible-auto-revert--monitored-buffers))))
+              (if (visible-auto-revert--auto-revert-active-p)
+                  (puthash buf 'external visible-auto-revert--monitored-buffers)
+                (auto-revert-mode 1)
+                (puthash buf 'owned visible-auto-revert--monitored-buffers)))))
 
         (dolist (buf to-disable)
           (when (buffer-live-p buf)
-            (with-current-buffer buf
-              (when auto-revert-mode
-                (auto-revert-mode -1))
+            (let ((ownership (gethash buf visible-auto-revert--monitored-buffers)))
+              (with-current-buffer buf
+                (when (and (eq ownership 'owned)
+                           auto-revert-mode)
+                  (auto-revert-mode -1)))
               (remhash buf visible-auto-revert--monitored-buffers))))
 
         ;; Clean up dead buffers from hash table
@@ -145,6 +162,26 @@ This function is safe to call from hooks as it catches and reports errors."
   "Remove current buffer from monitoring when killed."
   (remhash (current-buffer) visible-auto-revert--monitored-buffers))
 
+(defun visible-auto-revert--add-window-hooks ()
+  "Install hooks for visible window state tracking."
+  (if (boundp 'window-state-change-functions)
+      (add-hook 'window-state-change-functions
+                #'visible-auto-revert--schedule-update)
+    (add-hook 'window-buffer-change-functions
+              #'visible-auto-revert--schedule-update)
+    (add-hook 'window-configuration-change-hook
+              #'visible-auto-revert--schedule-update)))
+
+(defun visible-auto-revert--remove-window-hooks ()
+  "Remove hooks installed by `visible-auto-revert--add-window-hooks'."
+  (if (boundp 'window-state-change-functions)
+      (remove-hook 'window-state-change-functions
+                   #'visible-auto-revert--schedule-update)
+    (remove-hook 'window-buffer-change-functions
+                 #'visible-auto-revert--schedule-update)
+    (remove-hook 'window-configuration-change-hook
+                 #'visible-auto-revert--schedule-update)))
+
 ;;;###autoload
 (define-minor-mode visible-auto-revert-mode
   "Auto-revert only visible file-visiting buffers.
@@ -155,9 +192,7 @@ Works across all frames, only monitoring buffers in visible windows."
   :lighter nil
   (if visible-auto-revert-mode
       (progn
-        ;; Window visibility hooks (sufficient for most cases)
-        (add-hook 'window-buffer-change-functions #'visible-auto-revert--schedule-update)
-        (add-hook 'window-configuration-change-hook #'visible-auto-revert--schedule-update)
+        (visible-auto-revert--add-window-hooks)
         ;; Frame hooks for multi-frame support
         (add-hook 'after-make-frame-functions #'visible-auto-revert--schedule-update)
         (add-hook 'delete-frame-functions #'visible-auto-revert--schedule-update)
@@ -166,8 +201,7 @@ Works across all frames, only monitoring buffers in visible windows."
         ;; Initial update
         (visible-auto-revert--update-delayed))
     ;; Cleanup hooks
-    (remove-hook 'window-buffer-change-functions #'visible-auto-revert--schedule-update)
-    (remove-hook 'window-configuration-change-hook #'visible-auto-revert--schedule-update)
+    (visible-auto-revert--remove-window-hooks)
     (remove-hook 'after-make-frame-functions #'visible-auto-revert--schedule-update)
     (remove-hook 'delete-frame-functions #'visible-auto-revert--schedule-update)
     (remove-hook 'kill-buffer-hook #'visible-auto-revert--cleanup-killed-buffer)
@@ -176,10 +210,12 @@ Works across all frames, only monitoring buffers in visible windows."
       (cancel-timer visible-auto-revert--update-timer)
       (setq visible-auto-revert--update-timer nil))
     ;; Disable auto-revert only in monitored buffers
-    (maphash (lambda (buf _)
+    (maphash (lambda (buf ownership)
                (when (buffer-live-p buf)
                  (with-current-buffer buf
-                   (auto-revert-mode -1))))
+                   (when (and (eq ownership 'owned)
+                              auto-revert-mode)
+                     (auto-revert-mode -1)))))
              visible-auto-revert--monitored-buffers)
     ;; Clear state
     (clrhash visible-auto-revert--monitored-buffers)))
